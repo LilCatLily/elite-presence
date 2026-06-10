@@ -5,3 +5,4 @@
 # requests>=2.28.0
 # numpy>=1.20.0
 # pillow>=9.0.0
+pypresence==4.6.1
