@@ -1,0 +1,7 @@
+# External dependencies for EDMC-Plugin-Template
+# Add any third-party packages your plugin needs here
+
+# Examples (uncomment and modify as needed):
+# requests>=2.28.0
+# numpy>=1.20.0
+# pillow>=9.0.0
