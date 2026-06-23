@@ -1,37 +1,49 @@
 import logging
-import os
 import threading
 import time
 from typing import Optional, Tuple, Dict, Any
 import tkinter as tk
-
 from pypresence import Presence
 from plugins import edsm
-
 from config import appname, config
-import configuration as const
 import myNotebook as nb
+
+# locals
+from settings import presence_settings
+import configuration as const
+
+"""TODO
+    - SET STATUS SYSTEM AT STARTUP
+"""
 
 class This:
     """Holds globals."""
 
     def __init__(self):
-        self.DISCORD_THREAD: Optional[threading.Thread] = None
-        self.RPC: Optional[Presence] = None
-        self.CLIENT_ID: str = const.dis_application_id
+        # Discord Activity Holders
+        self.activity_state: str = ''
+        self.activity_details: str = ''
+        self.activity_buttons: list = []
+
+        self.RPC = None
+        self.DISCORD_THREAD: None
+        self.DEFAULT_APP_ID: str = const.dis_application_id
         self.NAME: str = const.plugin_name
         self.VERSION: str = const.plugin_version
-        self.STATE: str = ''
-        self.DETAILS: str = ''
-        self.BUTTON: list = []
+        self.SOURCE_OPTIONS = ['Inara', 'EDSM', 'Spansh']
+        self.PADX = 10
+        self.BUTTONX = 12  # indent Checkbuttons and Radiobuttons
+        self.LISTX = 25  # indent listed items
+        self.PADY = 1  # close spacing
+        self.BOXY = 2  # box spacing
+        self.SEPY = 10  # separator line spacing
 
 this = This()
 
 # ============================================================================
 # LOGGING SETUP
 # ============================================================================
-plugin_name = os.path.basename(os.path.dirname(__file__))
-logger = logging.getLogger(f'{appname}.{plugin_name}')
+logger = logging.getLogger(f'{appname}.{this.NAME}')
 
 if not logger.hasHandlers():
     level = logging.INFO
@@ -46,279 +58,184 @@ if not logger.hasHandlers():
     logger.addHandler(logger_channel)
 
 # ============================================================================
-# PLUGIN METADATA
-# ============================================================================
-__version__ = "0.1.0"
-VERSION = "0.1.0"
-
-# ============================================================================
-# GLOBAL STATE
-# ============================================================================
-status_label: Optional[tk.Label] = None
-my_setting: Optional[tk.IntVar] = None
-
-
-# ============================================================================
-# PLUGIN STARTUP
+# Load this plugin into EDMarketConnector.
+#
+# Args:
+#     plugin_dir: The directory that your plugin is located in.
+#
+# Returns:
+#     str: The name you want to be used for your plugin internally
 # ============================================================================
 def plugin_start3(plugin_dir: str) -> str:
-    """
-    Load this plugin into EDMarketConnector.
-    
-    Args:
-        plugin_dir: The directory that your plugin is located in.
-        
-    Returns:
-        str: The name you want to be used for your plugin internally
-    """
-    this.discord_thread = threading.Thread(target=init_discord)
-    this.discord_thread.daemon = True
-    this.discord_thread.start()
+
+    this.DISCORD_THREAD = threading.Thread(target=init_discord)
+    this.DISCORD_THREAD.daemon = True
+    this.DISCORD_THREAD.start()
 
     logger.info(f"Plugin loaded from: {plugin_dir}")
-    logger.info(f"Plugin version: {VERSION}")
+    logger.info(f"Plugin version: {this.VERSION}")
     
     return "Elite Presence"
 
-
 # ============================================================================
-# CONFIGURATION / PREFERENCES
+# Return a TK Frame for adding to the EDMarketConnector settings dialog.
+#
+# Args:
+#     parent: Root Notebook object the preferences window uses
+#     cmdr: The current commander
+#     is_beta: If the game is currently a beta version
+#
+# Returns:
+#     Optional[tk.Frame]: The preferences frame for this plugin
 # ============================================================================
 def plugin_prefs(parent: nb.Notebook, cmdr: str, is_beta: bool) -> Optional[tk.Frame]:
-    """
-    Return a TK Frame for adding to the EDMarketConnector settings dialog.
-    
-    Args:
-        parent: Root Notebook object the preferences window uses
-        cmdr: The current commander
-        is_beta: If the game is currently a beta version
-        
-    Returns:
-        Optional[tk.Frame]: The preferences frame for this plugin
-    """
-    # global my_setting
-    #
-    # frame = nb.Frame(parent)
-    # frame.columnconfigure(1, weight=1)
-    #
-    # # Retrieve saved value from config (or default to 0)
-    # saved_value = config.get_int("TemplatePluginSetting")
-    # my_setting = tk.IntVar(value=saved_value)
-    #
-    # # Add preference UI elements
-    # nb.Label(frame, text="Template Plugin Settings").grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=10, pady=10)
-    #
-    # nb.Label(frame, text="Enable Feature:").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
-    # nb.Checkbutton(frame, text="Enable custom feature", variable=my_setting).grid(row=1, column=1, sticky=tk.W, padx=10, pady=5)
-    #
-    # nb.Label(frame, text="This plugin extends EDMarketConnector with custom functionality.").grid(
-    #     row=2, column=0, columnspan=2, sticky=tk.W, padx=10, pady=10
-    # )
-    
-    #return frame
 
+    presence_settings.discord_app_id = tk.StringVar(value=config.get_str(key='elitepresence_discord_app_id', default=this.DEFAULT_APP_ID))
+    presence_settings.system_url_provider = tk.StringVar(value=config.get_str(key='elitepresence_system_url_provider', default='EDSM'))
+    presence_settings.station_url_provider = tk.StringVar(value=config.get_str(key='elitepresence_station_url_provider', default='EDSM'))
 
+    frame = nb.Frame(parent)
+    nb.Label(frame, text="Elite Presence Customization").grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=this.PADX, pady=this.PADY)
+
+    nb.Label(frame, text="Discord App ID:").grid(row=1, column=0, sticky=tk.W, padx=this.PADX, pady=this.PADY)
+    discord_id_entry = nb.EntryMenu(frame, textvariable=presence_settings.discord_app_id, width=20)
+    discord_id_entry.grid(row=1, column=1, sticky=tk.EW, padx=this.PADX, pady=this.PADY)
+
+    # Data Source Configuration Section
+    nb.Label(frame, text="Url Source Customization").grid(row=2, column=0, columnspan=2, sticky=tk.W, padx=this.PADX,
+                                                           pady=(15, 5))
+
+    # Primary Source Dropdown
+    nb.Label(frame, text="System Url Provider:").grid(row=3, column=0, sticky=tk.W, padx=this.PADX, pady=this.PADY)
+    system_provider = nb.OptionMenu(frame, presence_settings.system_url_provider, presence_settings.system_url_provider.get(),*this.SOURCE_OPTIONS)
+    system_provider.grid(row=3, column=1, sticky=tk.EW, padx=this.PADX, pady=this.PADY)
+
+    # Secondary Source Dropdown
+    nb.Label(frame, text="Station Url Provider:").grid(row=4, column=0, sticky=tk.W, padx=this.PADX, pady=this.PADY)
+    station_provider = nb.OptionMenu(frame, presence_settings.station_url_provider, presence_settings.station_url_provider.get(), *this.SOURCE_OPTIONS)
+    station_provider.grid(row=4, column=1, sticky=tk.EW, padx=this.PADX, pady=this.PADY)
+
+    return frame
+
+# ============================================================================
+# Called when the user dismisses the settings dialog.
+# Save settings here.
+#
+# Args:
+#     cmdr: The current commander
+#     is_beta: If the game is currently a beta version
+# ============================================================================
 def prefs_changed(cmdr: str, is_beta: bool) -> None:
-    """
-    Called when the user dismisses the settings dialog.
-    Save settings here.
-    
-    Args:
-        cmdr: The current commander
-        is_beta: If the game is currently a beta version
-    """
-    global my_setting
-    
-    if my_setting:
-        config.set('TemplatePluginSetting', my_setting.get())
-        logger.info(f"Preferences saved. Feature enabled: {my_setting.get()}")
 
-
-# ============================================================================
-# DISPLAY / UI
-# ============================================================================
-# def plugin_app(parent: tk.Frame) -> Tuple[tk.Label, tk.Label]:
-#     """
-#     Create UI widgets for the EDMarketConnector main window.
-#
-#     Args:
-#         parent: The root EDMarketConnector window
-#
-#     Returns:
-#         Tuple[tk.Label, tk.Label]: A pair of widgets to add to the main window
-#     """
-#     global status_label
-#
-#     label = tk.Label(parent, text="Template Status:")
-#     status_label = tk.Label(parent, text="Ready", foreground="green")
-#
-#     logger.info("UI widgets created")
-#
-#     return label, status_label
-
-
-def update_status(text: str, color: str = "green") -> None:
-    """
-    Update the status label in the main window.
-    
-    Args:
-        text: The status text to display
-        color: The color of the text
-    """
-    global status_label
-    
-    if status_label:
-        status_label["text"] = text
-        status_label["foreground"] = color
-
+    config.set('elitepresence_discord_app_id', presence_settings.discord_app_id.get())
+    config.set('elitepresence_system_url_provider', presence_settings.system_url_provider.get())
+    config.set('elitepresence_station_url_provider', presence_settings.station_url_provider.get())
 
 # ============================================================================
 # EVENT HANDLERS
 # ============================================================================
-def journal_entry(
-    cmdr: str,
-    is_beta: bool,
-    system: Optional[str],
-    station: Optional[str],
-    entry: Dict[str, Any],
-    state: Dict[str, Any]
-) -> Optional[str]:
-    """
-    Handle a new entry in the game's journal.
-    
-    Args:
-        cmdr: Current commander name
-        is_beta: Is the game currently in beta
-        system: Current system, if known
-        station: Current station, if any
-        entry: The journal event
-        state: More info about the commander, their ship, and their cargo
-        
-    Returns:
-        Optional[str]: An error message, or None
-    """
-    try:
-        event_type = entry.get('event', 'Unknown')
-        logger.debug(f"Journal entry: {event_type}")
-        star_system = system
+def journal_entry(cmdr: str, is_beta: bool, system: Optional[str], station: Optional[str], entry: Dict[str, Any], state: Dict[str, Any]) -> Optional[str]:
+    # Cache local references to avoid repeating 'this.' attribute lookups
+    a_state = this.activity_state
+    a_details = this.activity_details
 
-        if event_type == 'FSDJump':
-            logger.info(f"Jumped to system: {star_system}")
-            update_status(f"In {star_system}", "green")
-            this.DETAILS = "Supercruise"
-            
-        elif event_type == 'Docked':
-            station_name = entry.get('StationName', 'Unknown')
-            logger.info(f"Docked at: {station_name}")
-            update_status(f"Docked at {station_name}", "blue")
-            this.DETAILS = f"Docked at {station_name}"
-            
-        elif event_type == 'Undocked':
-            logger.info("Undocked")
-            update_status("Undocked", "yellow")
+    match entry:
+        # Combined matching for identical logic paths
+        case {"event": "StartUp" | "Location" | "Docked"}:
+            a_state = 'In system {system}'.format(system=system)
+            a_details = 'Flying in normal space' if station is None else 'Docked at {station}'.format(
+                station=station)
 
-        this.STATE = f"In {system}"
-        this.BUTTON = [
-            {"label": "View on EDSM", "url": edsm.system_url(f"{system}")}
-        ]
+        # Nested property matching for 'StartJump'
+        case {"event": "StartJump", "JumpType": "Hyperspace"}:
+            a_state = 'Jumping'
+            a_details = 'Jumping to system {system}'.format(system=entry.get('StarSystem', ''))
+
+        case {"event": "StartJump", "JumpType": "Supercruise"}:
+            a_state = 'Jumping'
+            a_details = 'Preparing for supercruise'
+
+        case {"event": "SupercruiseEntry" | "FSDJump"}:
+            a_state = 'In system {system}'.format(system=system)
+            a_details = 'Supercruising'
+
+        case {"event": "SupercruiseExit"}:
+            a_state = 'In system {system}'.format(system=system)
+            a_details = 'Flying in normal space'
+
+        # Bugfix: Combined original Undocked paths and alternatives into a clean layout
+        case {"event": "Undocked" | "DockingCancelled" | "DockingTimeout"}:
+            # If standard Undocked logic applies first, handle details change cleanly
+            if entry["event"] == "Undocked":
+                a_state = 'In system {system}'.format(system=system)
+            a_details = 'Flying near {station}'.format(station=entry.get('StationName', station))
+
+        case {"event": "ShutDown"} | {"event": "Music", "MusicTrack": "MainMenu"}:
+            a_state = 'Connecting CMDR Interface'
+            a_details = ''
+
+        case {"event": "ApproachBody"}:
+            planet = entry.get('Body')
+            a_details = 'Approaching {body}'.format(body=entry.get('Body'))
+
+        case {"event": "Touchdown", "PlayerControlled": True}:
+            a_details = 'Landed on {body}'.format(body=entry.get('Body'))
+
+        # Fixed logic error: your original had nested 'if entry['PlayerControlled']' twice
+        case {"event": "Liftoff"}:
+            if entry.get('PlayerControlled'):
+                a_details = 'Flying around {body}'.format(body=entry.get('Body'))
+            else:
+                a_details = 'In SRV on {body}, ship in orbit'.format(body=entry.get('Body'))
+
+        case {"event": "LeaveBody"}:
+            a_details = 'Supercruising'
+
+        case {"event": "LaunchSRV"}:
+            a_details = 'In SRV on {body}'.format(body=entry.get('Body'))
+
+        case {"event": "DockSRV"}:
+            a_details = 'Landed on {body}'.format(body=entry.get('Body'))
+
+        case _:
+            pass  # Fallback for unhandled Elite Dangerous journal events
+
+    # Only fire updating engine if a structural value actually shifted
+    if a_state != this.presence_state or a_details != this.activity_details:
+        this.presence_state = a_state
+        this.activity_details = a_details
         update_presence()
-        return None
-        
-    except Exception as e:
-        logger.exception("Error processing journal entry")
-        return f"Plugin error: {str(e)}"
 
 
+# ============================================================================
+# Handle the latest data from the Status.json file.
+#
+# This is called when an update to Status.json is detected (typically about once
+# a second when in orbital flight).
+#
+# Args:
+#     cmdr: Current commander name
+#     is_beta: If the game is currently in beta
+#     entry: Data from status.json
+#
+# Returns:
+#     Optional[str]: An error message, or None
+# ============================================================================
 def dashboard_entry(cmdr: str, is_beta: bool, entry: Dict[str, Any]) -> Optional[str]:
-    """
-    Handle the latest data from the Status.json file.
-    
-    This is called when an update to Status.json is detected (typically about once
-    a second when in orbital flight).
-    
-    Args:
-        cmdr: Current commander name
-        is_beta: If the game is currently in beta
-        entry: Data from status.json
-        
-    Returns:
-        Optional[str]: An error message, or None
-    """
-    try:
-        logger.debug("Dashboard entry received")
-        # Add your dashboard event handling here
-        return None
-        
-    except Exception as e:
-        logger.exception("Error processing dashboard entry")
-        return f"Plugin error: {str(e)}"
 
-
-def cmdr_data(data: Any, is_beta: bool) -> Optional[str]:
-    """
-    Handle fresh CMDR, station, and shipyard data from Frontier's CAPI servers.
-    
-    Args:
-        data: /profile API response, with /market and /shipyard added
-        is_beta: If the game is currently in beta
-        
-    Returns:
-        Optional[str]: An error message, or None
-    """
-    try:
-        if data.get('commander') is None or data['commander'].get('name') is None:
-            logger.error("Invalid CAPI data")
-            return None
-        
-        cmdr_name = data['commander']['name']
-        logger.info(f"CAPI data received for commander: {cmdr_name}")
-        
-        return None
-        
-    except Exception as e:
-        logger.exception("Error processing CAPI commander data")
-        return f"Plugin error: {str(e)}"
-
-
-def capi_fleetcarrier(data: Any) -> Optional[str]:
-    """
-    Handle fresh Fleet Carrier data from Frontier's CAPI servers.
-    
-    Args:
-        data: /fleetcarrier API response
-        
-    Returns:
-        Optional[str]: An error message, or None
-    """
-    try:
-        if data.get('name') is None or data['name'].get('callsign') is None:
-            logger.error("Invalid fleet carrier data")
-            return None
-        
-        callsign = data['name']['callsign']
-        logger.info(f"Fleet carrier data received: {callsign}")
-        
-        return None
-        
-    except Exception as e:
-        logger.exception("Error processing fleet carrier data")
-        return f"Plugin error: {str(e)}"
-
+    return None
 
 # ============================================================================
 # PLUGIN SHUTDOWN
+# - Called when EDMarketConnector is closing.
+# - Clean up resources, save state, and stop any running threads here
 # ============================================================================
 def plugin_stop() -> None:
-    """
-    Called when EDMarketConnector is closing.
-    
-    Clean up resources, save state, and stop any running threads here.
-    """
     logger.info("Plugin shutting down")
     # Add cleanup code here
 
 def init_discord():
-    this.RPC = Presence(this.CLIENT_ID)
+    this.RPC = Presence(this.DEFAULT_APP_ID)
     this.RPC.connect()
 
     this.RPC_THREAD = threading.Thread(target=run_rpc)
@@ -330,20 +247,20 @@ def init_discord():
     update_presence()
 
 def update_presence():
-    if not this.DETAILS:
+    if not this.activity_details:
         this.RPC.update(
-            state=this.STATE,
-            buttons=this.BUTTON
+            state=this.activity_state,
+            buttons=this.activity_buttons
         )
     else:
         this.RPC.update(
-            state=this.STATE,
-            details=this.DETAILS,
-            buttons=this.BUTTON
+            state=this.activity_state,
+            details=this.activity_details,
+            buttons=this.activity_buttons
         )
 
 def clearButton():
-    this.RPC.update(buttons=this.BUTTON.clear())
+    this.RPC.update(buttons=this.activity_buttons.clear())
 
 def run_rpc():
     while True:
